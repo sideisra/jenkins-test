@@ -9,7 +9,7 @@ pipeline {
                 }
                 timeout(time: 5, unit: 'MINUTES') {
                   sh './gradlew build'
-                  junit '**/build/*.xml'
+                  junit(testResults: "**/build/test-results/test/*.xml", allowEmptyResults: true)
                 }
             }
         }
