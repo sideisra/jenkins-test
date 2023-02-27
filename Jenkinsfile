@@ -2,13 +2,24 @@ pipeline {
     agent any
 
     stages {
-        stage('Build') {
+        stage('Clean') {
             steps {
                 timeout(time: 1, unit: 'MINUTES') {
                   sh './gradlew clean'
                 }
+            }
+        }
+        stage('Build') {
+            steps {
                 timeout(time: 5, unit: 'MINUTES') {
-                  sh './gradlew build'
+                  sh './gradlew build -x test'
+                }
+            }
+        }
+        stage('Test') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                  sh './gradlew test'
                 }
             }
             post {
