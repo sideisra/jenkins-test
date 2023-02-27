@@ -6,7 +6,7 @@ package jenkins.test
 class App {
     val greeting: String
         get() {
-            return "Hello World!"
+            return "Hello World"
         }
 }
 
