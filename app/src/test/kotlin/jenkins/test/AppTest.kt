@@ -10,6 +10,6 @@ import kotlin.test.assertNotNull
 class AppTest {
     @Test fun appHasAGreeting() {
         val classUnderTest = App()
-        assertThat(classUnderTest.greeting).isEqualTo("Hello world")
+        assertThat(classUnderTest.greeting).isEqualTo("Hello World")
     }
 }

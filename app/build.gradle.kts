@@ -12,6 +12,8 @@ plugins {
 
     // Apply the application plugin to add support for building a CLI application in Java.
     application
+
+    id("jacoco")
 }
 
 repositories {
@@ -37,7 +39,15 @@ application {
     mainClass.set("jenkins.test.AppKt")
 }
 
-tasks.named<Test>("test") {
+tasks.test {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
+    finalizedBy(tasks.jacocoTestReport)
+}
+tasks.jacocoTestReport {
+    reports {
+        xml.required.set(true)
+        csv.required.set(false)
+    }
+    dependsOn(tasks.test) // tests are required to run before generating the report
 }
