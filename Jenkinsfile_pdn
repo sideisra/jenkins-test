@@ -1,0 +1,233 @@
+import java.text.SimpleDateFormat
+
+// TODO delete
+
+def loadGradlePropertiesVersion() {
+    Properties gradleProps = new Properties()
+    def gradlePropsString = readFile(file: 'gradle.properties')
+    def reader = new StringReader(gradlePropsString)
+    gradleProps.load(reader)
+    def version = gradleProps.get('version')
+    version
+}
+
+def writeGradlePropertiesVersion(version) {
+    writeFile(file: 'gradle.properties', text: "version=${version}", encoding: "UTF-8")
+}
+
+pipeline {
+
+    agent any
+
+    tools {
+        jdk 'jdk11'
+    }
+
+    parameters {
+        booleanParam(name: 'FORCE_BUILD', defaultValue: false, description: 'forces to build')
+        booleanParam(name: 'CLEAN_NODE_MODULES', defaultValue: false, description: 'forces to clean node modules')
+    }
+
+    stages {
+        stage('prepare release') {
+            when {
+                environment name: 'JOB_NAME', value: 'pdn_release'
+            }
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    script {
+                        def readVersion = loadGradlePropertiesVersion()
+                        println "read version: ${readVersion}"
+                        def readVersionSplit = readVersion.split("-")
+                        if (readVersionSplit.length != 2 || !"SNAPSHOT".equals(readVersionSplit[1])) {
+                            error("read version is not a snapshot")
+                        }
+                        def timestamp = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date())
+                        def rcSuffix = env.GIT_BRANCH.equals("origin/main") ? "" : "-RC"
+                        def buildVersion = "${readVersionSplit[0]}-${timestamp}${rcSuffix}"
+                        println "buildVersion: ${buildVersion}"
+                        env.BUILD_VERSION = buildVersion
+                        // write new build version
+                        writeGradlePropertiesVersion(buildVersion)
+                        currentBuild.description = buildVersion
+                    }
+                }
+            }
+        }
+        stage('clean') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    withGradle {
+                        sh "./gradlew --no-daemon clean"
+                    }
+                }
+            }
+        }
+
+        stage('clean node modules') {
+            when {
+                anyOf {
+                    expression { params.CLEAN_NODE_MODULES }
+                }
+            }
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    withGradle {
+                        sh "./gradlew --no-daemon cleanNodeModulesAndPackageLock"
+                    }
+                }
+            }
+        }
+
+        stage('build') {
+            when {
+                anyOf {
+                    changeset "**/src/**"
+                    not {
+                        equals expected: "SUCCESS", actual: currentBuild.getPreviousBuild()?.getResult()?.toString()
+                    }
+                    expression { params.FORCE_BUILD }
+                }
+            }
+            steps {
+                timeout(time: 20, unit: 'MINUTES') {
+                    withEnv(["REACT_APP_FRONTEND_VERSION=${env.BUILD_VERSION}"]) {
+                        withGradle {
+                            sh "./gradlew --no-daemon build"
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    script {
+                        println(env.GIT_BRANCH)
+                        println("Collecting test results")
+                        // enable build failure, if not task branch
+                        junit(testResults: """
+                     **/build/test-results/test/*.xml,
+                     **/build/test-results/integration/*.xml,
+                     **/build/test-results/documentation/*.xml
+                      """,
+                            allowEmptyResults: true)
+                        recordIssues(enabledForFailure: true, tool: kotlin())
+                        recordIssues(enabledForFailure: true,
+                            tool: ktLint(pattern: "**/build/reports/ktlint/*.xml"),
+                            qualityGates: [[threshold: 1, type: 'TOTAL', unstable: false]],
+                            healthy: 10, unhealthy: 100, minimumSeverity: 'HIGH')
+                        recordIssues(enabledForFailure: true, tool: tsLint(pattern: "**/build_reports/tslint/*.xml"),
+                            qualityGates: [[threshold: 1, type: 'TOTAL_HIGH', unstable: false]],
+                            healthy: 10, unhealthy: 100, minimumSeverity: 'HIGH')
+                        jacoco(sourcePattern: '**/src/main/java,**/src/main/kotlin',
+                            sourceInclusionPattern: '**/*.java,**/*.kt',
+                            minimumInstructionCoverage: '50',
+                            minimumBranchCoverage: '50',
+                            minimumComplexityCoverage: '50',
+                            minimumLineCoverage: '50',
+                            minimumMethodCoverage: '50',
+                            minimumClassCoverage: '50',
+                            changeBuildStatus: true)
+                    }
+                }
+            }
+        }
+
+        stage('e2e') {
+            steps {
+                timeout(time: 20, unit: 'MINUTES') {
+                    withGradle {
+                        sh "./gradlew --no-daemon e2e"
+                    }
+                }
+            }
+            post {
+                always {
+                    script {
+                        println("Collecting e2e test results")
+                        // enable build failure, if not task branch
+                        junit(testResults: """
+                         **/build/test-results/e2e/*.xml
+                          """, allowEmptyResults: true)
+                    }
+                }
+            }
+        }
+
+        stage('release') {
+            when {
+                environment name: 'JOB_NAME', value: 'pdn_release'
+            }
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    sshagent(credentials: ['pdn-bitbucket-ssh-access']) {
+                        sh "git tag v${env.BUILD_VERSION}"
+                        sh "git push origin v${env.BUILD_VERSION}"
+                    }
+                    sh "\$(aws ecr get-login --no-include-email --region eu-central-1)"
+                    withEnv(["REACT_APP_FRONTEND_VERSION=${env.BUILD_VERSION}"]) {
+                        withGradle {
+                            sh "./gradlew --no-daemon pushDockerImageForAws"
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    script {
+                        println("Clean up docker images")
+                        // run docker clean up for release images
+                        sh(script: "docker rmi -f \$(docker images -q -f \"reference=496129668698.dkr.ecr.eu-central-1.amazonaws.com/pdn*\")", returnStatus: true)
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'printenv'
+            script {
+                // reset version in case of release build
+                sh "git reset --hard"
+                println("Clean up docker")
+                // remove stopped containers, dangling images, build cache, unused networks plus unused volumes
+                sh(script: "docker system prune -f --volumes", returnStatus: true)
+                currentBuild.result = currentBuild.result
+                notifyBitbucket(considerUnstableAsSuccess: false)
+            }
+        }
+        success {
+            sh 'printenv'
+            script {
+                println("job ${env.JOB_NAME} on branch ${env.GIT_BRANCH}")
+                if ("origin/develop".equals(env.GIT_BRANCH) && "pdn_release".equals(env.JOB_NAME)) {
+                    build(job: "/pdn_deploy", parameters: [string(name: "STAGE", value: "Test"), string(name: "RELEASE_VERSION", value: env.BUILD_VERSION)], propagate: false, wait: false)
+                    build(job: "/pdn_dependency_check", propagate: false, wait: false)
+                }
+                if ("origin/main".equals(env.GIT_BRANCH) && "pdn_release".equals(env.JOB_NAME)) {
+                    build(job: "/pdn_deploy", parameters: [string(name: "STAGE", value: "Demo"), string(name: "RELEASE_VERSION", value: env.BUILD_VERSION)], propagate: false, wait: false)
+                }
+                if (currentBuild.getPreviousBuild()?.getResult() != null && !"SUCCESS".equals(currentBuild.getPreviousBuild()?.getResult()?.toString())) {
+                    withCredentials([string(credentialsId: 'fkt-teams-webhook', variable: 'webhook')]) {
+                        office365ConnectorSend status: "Build back to stable", webhookUrl: webhook
+                    }
+                }
+            }
+        }
+        failure {
+            withCredentials([string(credentialsId: 'fkt-teams-webhook', variable: 'webhook')]) {
+                office365ConnectorSend status: "Build Failed", webhookUrl: webhook
+            }
+        }
+        unstable {
+            withCredentials([string(credentialsId: 'fkt-teams-webhook', variable: 'webhook')]) {
+                office365ConnectorSend status: "Build Unstable", webhookUrl: webhook
+            }
+        }
+        aborted {
+            withCredentials([string(credentialsId: 'fkt-teams-webhook', variable: 'webhook')]) {
+                office365ConnectorSend status: "Build Aborted", webhookUrl: webhook
+            }
+        }
+    }
+}
