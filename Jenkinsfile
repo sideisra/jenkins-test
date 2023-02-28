@@ -25,7 +25,7 @@ pipeline {
             post {
                 always {
                     junit(testResults: "**/build/test-results/test/*.xml", allowEmptyResults: true)
-                    publishCoverage adapters: [jacoco(path: '**/build/reports/jacoco/test/jacocoTestReport.xml')]
+                    jacoco()
                 }
             }
         }
