@@ -29,5 +29,15 @@ pipeline {
                 }
             }
         }
+        stage('Package') {
+            when {
+                branch 'main'
+            }
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                  sh './gradlew assemble'
+                }
+            }
+        }
     }
 }
