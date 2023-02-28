@@ -31,24 +31,11 @@ pipeline {
         }
         stage('Package') {
             when {
-                anyOf{
-                    branch 'main'
-                    branch 'release'
-                }
+                branch 'main'
             }
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                   sh './gradlew assemble'
-                }
-            }
-        }
-        stage('deploy') {
-            when {
-                branch 'release'
-            }
-            steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                  sh 'echo deploying...'
                 }
             }
         }

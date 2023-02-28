@@ -1,0 +1,20 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Package') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                  sh './gradlew assemble'
+                }
+            }
+        }
+        stage('deploy') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                  sh 'echo deploying...'
+                }
+            }
+        }
+    }
+}
