@@ -32,7 +32,7 @@ pipeline {
             post {
                 always {
                     junit(testResults: "**/build/test-results/test/*.xml", allowEmptyResults: true)
-                    jacoco(minimumInstructionCoverage: '100')
+                    jacoco(minimumInstructionCoverage: '100',changeBuildStatus: true)
                 }
             }
         }
