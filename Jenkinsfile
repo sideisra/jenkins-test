@@ -1,3 +1,7 @@
+def printHello() {
+    println "Hello World!"
+}
+
 pipeline {
     agent any
 
@@ -6,6 +10,9 @@ pipeline {
             steps {
                 timeout(time: 1, unit: 'MINUTES') {
                   sh './gradlew clean'
+                  script {
+                    printHello()
+                  }
                 }
             }
         }
