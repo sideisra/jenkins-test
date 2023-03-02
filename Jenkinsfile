@@ -23,6 +23,13 @@ pipeline {
                 }
             }
         }
+        stage('Assemble') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                  sh './gradlew assemble'
+                }
+            }
+        }
         stage('Test') {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
