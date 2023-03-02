@@ -9,7 +9,7 @@ import kotlin.test.assertNotNull
 
 class AppTest {
     @Test fun appHasAGreeting() {
-//        val classUnderTest = App()
-//        assertThat(classUnderTest.greeting).isEqualTo("Hello World")
+        val classUnderTest = App()
+        assertThat(classUnderTest.greeting).isEqualTo("Hello World")
     }
 }
